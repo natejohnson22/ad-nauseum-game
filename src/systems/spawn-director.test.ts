@@ -23,9 +23,23 @@ class FakeSink implements SpawnSink {
    */
   private readonly live = new Map<string, number>();
 
+  /**
+   * Telegraphed spawns — an event's shaped burst (issue #34). Kept apart from
+   * `spawned` because a telegraph is a *committed but not yet landed* spawn, and
+   * the director's `max`/`liveCount` bookkeeping deliberately never touches it:
+   * an event has no cap. What is worth asserting is the shape and the timing,
+   * which is what these fields carry.
+   */
+  readonly telegraphed: { name: string; x: number; y: number; delay: number }[] =
+    [];
+
   spawn(data: EnemyData, x: number, y: number): void {
     this.spawned.push({ name: data.displayName, x, y });
     this.live.set(data.displayName, this.liveCountOf(data.displayName) + 1);
+  }
+
+  telegraph(data: EnemyData, x: number, y: number, delay: number): void {
+    this.telegraphed.push({ name: data.displayName, x, y, delay });
   }
 
   liveCount(data: EnemyData): number {
@@ -53,6 +67,7 @@ class FakeSink implements SpawnSink {
   /** Forget the log **and** the board — a fresh arena, not just a fresh tally. */
   clear(): void {
     this.spawned.length = 0;
+    this.telegraphed.length = 0;
     this.live.clear();
   }
 }
@@ -298,6 +313,114 @@ describe("SpawnDirector", () => {
     expect(Math.hypot(first.x - 100, first.y - -50)).toBeCloseTo(
       SpawnDirector.SPAWN_RADIUS,
     );
+  });
+
+  /**
+   * Hordes and trapping rings (issue #34): punctuation layered on the ordinary
+   * stream. The scheduling is the director's; the geometry is asserted here
+   * rather than left to play, because a ring with no gap and a ring with a gap
+   * differ only in the angles and one is a death sentence.
+   */
+  describe("phase events", () => {
+    it("holds an event back a full interval, rather than firing it on arrival", () => {
+      const sink = new FakeSink();
+      const d = director(sink);
+      d.start();
+
+      // One tick into Struggle, where the events live. The stream has fired on
+      // sight; an event has not — it is the punctuation, not the sentence.
+      d.tick(1 / 60, 600);
+      expect(sink.spawned.length).toBeGreaterThan(0);
+      expect(sink.telegraphed).toHaveLength(0);
+    });
+
+    it("fires no events in a phase the table gives none", () => {
+      const sink = new FakeSink();
+      const d = director(sink);
+      d.start();
+
+      // Quick Start is a steady stream — no hordes, no rings.
+      play(d, 0, 120);
+      expect(sink.telegraphed).toHaveLength(0);
+    });
+
+    it("telegraphs an event's enemies rather than dropping them blind", () => {
+      const sink = new FakeSink();
+      const d = director(sink);
+      d.start();
+
+      play(d, 600, 90);
+      expect(sink.telegraphed.length).toBeGreaterThan(0);
+      // Every one carries a warning — the whole point of an event near the
+      // player, where a blink into existence is unreadable.
+      expect(sink.telegraphed.every((t) => t.delay > 0)).toBe(true);
+    });
+
+    it("lays a ring at its radius with a gap to run through", () => {
+      const sink = new FakeSink();
+      // Origin at 0,0 and a pinned random, so the ring's radius and gap are
+      // exact rather than sampled.
+      const d = new SpawnDirector(sink, { x: 0, y: 0 }, () => 0.5);
+      d.start();
+
+      play(d, 600, 90);
+      const ring = sink.telegraphed.filter(
+        (t) => Math.abs(Math.hypot(t.x, t.y) - 320) < 1,
+      );
+      expect(ring.length).toBeGreaterThan(0);
+
+      // The gap: the widest angular jump between neighbours is far more than the
+      // even spacing would leave — a solid ring would have no such jump.
+      const angles = [...new Set(ring.map((t) => Math.atan2(t.y, t.x)))].sort(
+        (a, b) => a - b,
+      );
+      const step = angles
+        .slice(1)
+        .map((a, i) => a - angles[i]!)
+        .concat(angles[0]! + Math.PI * 2 - angles[angles.length - 1]!);
+      expect(Math.max(...step)).toBeGreaterThan((2 * Math.PI) / 30 * 3);
+    });
+
+    it("packs a horde into a wall past the spawn ring", () => {
+      const sink = new FakeSink();
+      const d = new SpawnDirector(sink, { x: 0, y: 0 }, () => 0);
+      d.start();
+
+      play(d, 600, 90);
+      // The ring closes in at 320; the wall stands at the offscreen spawn ring
+      // and beyond, so distance alone tells them apart.
+      const wall = sink.telegraphed.filter(
+        (t) => Math.hypot(t.x, t.y) >= SpawnDirector.SPAWN_RADIUS - 1,
+      );
+      expect(wall.length).toBeGreaterThan(0);
+      // Depth: a wall is rows deep, not a single arc.
+      const rows = new Set(wall.map((t) => Math.round(Math.hypot(t.x, t.y))));
+      expect(rows.size).toBeGreaterThanOrEqual(2);
+    });
+
+    it("thins the ordinary stream as an event lands", () => {
+      const sink = new FakeSink();
+      const d = director(sink);
+      d.start();
+
+      const step = 1 / 60;
+      let thinned = false;
+      for (let t = 600; t < 690; t += step) {
+        const before = sink.telegraphed.length;
+        d.tick(step, t);
+        if (sink.telegraphed.length > before) {
+          // An event fired this tick. The grunt track's next wave was pushed
+          // back a beat, so the shape lands into a lull.
+          const grunt = d
+            .readout(t)
+            .tracks.find((x) => x.enemy === "popup_grunt")!;
+          expect(grunt.nextIn).toBeGreaterThan(SpawnDirector.EVENT_PAUSE);
+          thinned = true;
+          break;
+        }
+      }
+      expect(thinned).toBe(true);
+    });
   });
 
   it("spawns exactly each phase's roster, no more and no less", () => {

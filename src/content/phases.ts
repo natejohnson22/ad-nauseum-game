@@ -81,6 +81,15 @@ export const PHASES = [
          arena's usable ground — this is the number likeliest to be wrong. */
       { enemy: "cookie_banner", interval: [14, 11], wave: [1, 1], max: 3 },
     ],
+    /* The phase the PDF names "hordes, rings that trap you" — the two events
+       #34 built and Nate settled by play. A wall of grunts from one bearing,
+       and a ring closing in with a gap to run for. Made of Popup Grunts, so
+       they cost nothing new to balance. Rates are provisional in exactly the
+       sense the ramps above are — the Struggle tuning pass owns them. */
+    events: [
+      { kind: "horde", enemy: "popup_grunt", interval: [18, 14], rows: 4, perRow: 7, arcDegrees: 48 },
+      { kind: "ring", enemy: "popup_grunt", interval: [22, 16], count: 30, radius: 320, gapDegrees: 70 },
+    ],
   },
   {
     id: "panic",

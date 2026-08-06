@@ -204,6 +204,14 @@ export class DevHarness {
           `next ${track.nextIn.toFixed(2)}s   ` +
           `live ${track.live}${track.max === null ? "" : `/${track.max}`}`,
       ),
+      // Hordes and rings, when the phase has them (issue #34) — the Struggle
+      // tuning pass wants their cadence on screen as much as a track's.
+      ...view.events.map(
+        (event) =>
+          `  ${`event ${event.kind}`.padEnd(20)}` +
+          `every ${event.interval.toFixed(2)}s   ` +
+          `next ${event.nextIn.toFixed(2)}s`,
+      ),
       `live  ${liveEnemies()} enemies   ` +
         `hp ${player.hp}${player.invulnerable ? " (INVULN)" : ""}`,
       `keys  [ ] speed ${this.timeScale}x    i invuln    \` hide`,

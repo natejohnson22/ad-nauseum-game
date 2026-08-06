@@ -13,6 +13,7 @@ import { Engagement } from "../entities/engagement";
 import { Enemy } from "../entities/enemy";
 import { EnemyProjectile } from "../entities/enemy-projectile";
 import { Player } from "../entities/player";
+import { SpawnTelegraph } from "../entities/spawn-telegraph";
 import { SwordSwing } from "../entities/sword-swing";
 import { Progression } from "../systems/progression";
 import { Run, type RunOutcome } from "../systems/run";
@@ -43,6 +44,8 @@ export class GameScene extends Phaser.Scene {
   private controls!: Controls;
   private player!: Player;
   private enemies!: Pool<Enemy>;
+  /** The orange dots an event telegraphs behind before its enemies land (#34). */
+  private spawnTelegraphs!: Pool<SpawnTelegraph>;
   private enemyShots!: Pool<EnemyProjectile>;
   private swings!: Pool<SwordSwing>;
   private boomerangs!: Pool<Boomerang>;
@@ -74,6 +77,7 @@ export class GameScene extends Phaser.Scene {
     this.run = new Run(this.bus);
 
     this.enemies = new Pool(this, Enemy);
+    this.spawnTelegraphs = new Pool(this, SpawnTelegraph);
     this.enemyShots = new Pool(this, EnemyProjectile);
     this.swings = new Pool(this, SwordSwing);
     this.boomerangs = new Pool(this, Boomerang);
@@ -116,6 +120,15 @@ export class GameScene extends Phaser.Scene {
       {
         spawn: (data, x, y) =>
           this.enemies.obtain().spawn(data, x, y, this.player, this),
+        // An event's telegraph (issue #34): show the marker, then spawn the
+        // enemy the ordinary way when it lands. The scene owns both pools, so
+        // it is the one place that can hold the marker and the spawn together.
+        telegraph: (data, x, y, delay) =>
+          this.spawnTelegraphs
+            .obtain()
+            .spawn(x, y, delay, () =>
+              this.enemies.obtain().spawn(data, x, y, this.player, this),
+            ),
         // Compared by reference, which is exactly right: `ENEMIES` records are
         // module singletons and `spawn` hands the same object to the enemy, so
         // identity *is* archetype identity — no id has to be carried around to
@@ -178,6 +191,10 @@ export class GameScene extends Phaser.Scene {
     this.player.tick(dt);
     // After `run.tick`, so the director reads this frame's elapsed time.
     this.director.tick(dt, this.run.elapsed);
+    // After the director, so a marker queued this frame counts down from its
+    // full delay; when one lands it spawns an enemy the loop below then ticks,
+    // exactly as an ordinary spawn is (issue #34).
+    this.spawnTelegraphs.each((telegraph) => telegraph.tick(dt));
     this.enemies.each((enemy) => enemy.tick(dt));
     // After the enemies that fire them, so a shot spawned this frame does not
     // also travel this frame — it would otherwise leave the muzzle already a
