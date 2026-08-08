@@ -355,6 +355,54 @@ export interface SpawnTrack {
 }
 
 /**
+ * A telegraphed burst layered on a phase's ordinary `tracks` — the Struggle
+ * phase's "hordes" and "rings that trap you" (issue #34).
+ *
+ * A track is a faucet: a steady rate the player learns to swim in. An event is
+ * punctuation — it fires on its own interval, telegraphs for a beat, and drops
+ * a *shaped* mass of enemies at once, then the director thins the faucet as it
+ * lands so the player meets the shape rather than the shape plus the stream.
+ *
+ * Both arms name an `enemy` and Struggle points both at the Popup Grunt, so an
+ * event is "more of the texture already here, arranged to threaten" rather than
+ * a new archetype to balance. **Settled by play in #34**: a wall from one
+ * bearing read as a horde where a sustained stream read as noise, and a ring
+ * with a gap was a fair "get out now" where a solid ring was a death sentence —
+ * so `horde` is a wall and every `ring` keeps a gap.
+ *
+ * This is the event scheduler the mini-boss note in `SpawnTrack` foresaw: an
+ * *announced*, shaped arrival, which `max: 1` deliberately was not.
+ */
+export type SpawnEvent =
+  | {
+      readonly kind: "horde";
+      readonly enemy: EnemyId;
+      /** Seconds between firings; lerped on phase progress, like a track. */
+      readonly interval: Ramp;
+      /** How many concentric rows deep the wall packs — its depth. */
+      readonly rows: number;
+      /** How many enemies across each row — its width. */
+      readonly perRow: number;
+      /** The arc the wall spans from a single random bearing, in degrees. */
+      readonly arcDegrees: number;
+    }
+  | {
+      readonly kind: "ring";
+      readonly enemy: EnemyId;
+      readonly interval: Ramp;
+      /** Enemies evenly spaced around the circle, minus those the gap omits. */
+      readonly count: number;
+      /** How far from the player the ring forms — its trap radius. */
+      readonly radius: number;
+      /**
+       * The escape gap, in degrees. Never zero: a closed ring is the death
+       * sentence #34 rejected, since the player's only defence is movement, so
+       * the gap is the thing that makes the trap fair rather than fatal.
+       */
+      readonly gapDegrees: number;
+    };
+
+/**
  * One row of the pacing table — the spine every time-driven system reads
  * (issue #29).
  *
@@ -372,4 +420,10 @@ export interface Phase {
   readonly end: number;
   readonly levelUps: Budget;
   readonly tracks: readonly SpawnTrack[];
+  /**
+   * Hordes and trapping rings on top of `tracks` (issue #34). Absent in the
+   * phases the PDF describes as a steady stream; present in Struggle, whose
+   * whole brief is "hordes, rings that trap you".
+   */
+  readonly events?: readonly SpawnEvent[];
 }
